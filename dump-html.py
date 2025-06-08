@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import os
-import sys
+import gc
 import argparse
 import logging
 from datetime import datetime
@@ -13,8 +13,7 @@ logger = logging.getLogger("wechat")
 
 def get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('name', help='name of contact')
-    parser.add_argument('--output', help='output html file, e.g. output.html', default='output.html')
+    parser.add_argument('--output_dir', help='output subdirectory', default='output')
     parser.add_argument('--db', default='EnMicroMsg.db.decrypted',
                         help='path to the decrypted database, e.g. EnMicroMsg.db.decrypted')
     parser.add_argument('--res', default='resource', help='the resource directory')
@@ -25,35 +24,23 @@ def get_args():
     args = parser.parse_args()
     return args
 
-if __name__ == '__main__':
-    args = get_args()
-
-    output_file = args.output
-
-    parser = WeChatDBParser(args.db)
-
-    try:
-        chatid = parser.get_chat_id(args.name)
-    except KeyError:
-        sys.stderr.write(u"Valid Contacts: {}\n".format(
-            u'\n'.join(parser.all_chat_nicknames)))
-        sys.stderr.write(u"Couldn't find the chat {}.".format(args.name));
-        sys.exit(1)
-
-    res = Resource(parser, args.res,
-                   wxgf_server=args.wxgf_server,
-                   avt_db=args.avt)
+def dump_one(chatid, contact):
     msgs = parser.msgs_by_chat[chatid]
-    logger.info(f"Number of Messages for chatid {chatid}: {len(msgs)}")
+    logger.info(f"Number of Messages for contact {contact}: {len(msgs)}")
     assert len(msgs) > 0
     if args.start is not None:
         msgs = [msg for msg in msgs if msg.createTime > args.start]
         logger.info(f"Number of Messages after {args.start}: {len(msgs)}")
 
+    if os.path.exists(args.output_dir + "/" + contact + ".html") or \
+       os.path.exists(args.output_dir + "/" + contact + "00.html"):
+        logger.warning(f"Output file for {contact} already exists, skipping.")
+        return
+
     render = HTMLRender(parser, res)
     htmls = render.render_msgs(msgs)
 
-    os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
+    output_file = args.output_dir + "/" + contact + ".html"
     if len(htmls) == 1:
         with open(output_file, 'w') as f:
             f.write(htmls[0])
@@ -64,3 +51,26 @@ if __name__ == '__main__':
             with open(basename + f'{idx:02d}.html', 'w') as f:
                 f.write(html)
     res.emoji_reader.flush_cache()
+
+if __name__ == '__main__':
+    args = get_args()
+
+    output_dir = args.output_dir
+
+    parser = WeChatDBParser(args.db)
+    res = Resource(parser, args.res,
+                   wxgf_server=args.wxgf_server,
+                   avt_db=args.avt)
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    chats = parser.msgs_by_chat.keys()
+    for chatid in chats:
+        try:
+            contact = parser.contacts[chatid]
+        except KeyError:
+            contact = chatid
+        if len(contact) == 0:
+            contact = chatid
+        dump_one(chatid, contact)
+        gc.collect()
