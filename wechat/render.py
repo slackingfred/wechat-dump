@@ -120,7 +120,11 @@ class HTMLRender(object):
 
         def fallback():
             template = get_template(TYPE_MSG)
-            content = msg.msg_str()
+            try:
+                content = msg.msg_str()
+            except Exception as e:
+                print(e)
+                content = ''
             content = self.smiley.replace_smileycode(content)
             if not msg.known_type:
                 # Show raw (usually xml) content if unknown.
